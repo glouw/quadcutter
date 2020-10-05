@@ -29,7 +29,7 @@ struct rect
 struct quad
 {
     struct rect rect;
-    uint32_t color;
+    struct colo colo;
 };
 
 struct node
@@ -39,7 +39,7 @@ struct node
     int depth;
 };
 
-struct colo
+static inline struct colo
 Colo(uint32_t color)
 {
     return (struct colo) {
@@ -49,15 +49,7 @@ Colo(uint32_t color)
     };
 }
 
-uint32_t
-unpack(struct colo colo)
-{
-    return colo.r << 0x10
-         | colo.g << 0x08
-         | colo.b << 0x00;
-}
-
-struct colo
+static inline struct colo
 add(struct colo a, struct colo b)
 {
     return (struct colo) {
@@ -67,7 +59,7 @@ add(struct colo a, struct colo b)
     };
 }
 
-double
+static inline double
 mag(struct colo a)
 {
     return sqrt(
@@ -76,13 +68,13 @@ mag(struct colo a)
         a.b * a.b);
 }
 
-double
-diff(uint32_t a, uint32_t b)
+static inline double
+diff(struct colo a, struct colo b)
 {
-    return fabs(mag(Colo(a)) - mag(Colo(b)));
+    return fabs(mag(a) - mag(b));
 }
 
-struct colo
+static inline struct colo
 divide(struct colo a, int n)
 {
     return (struct colo) {
@@ -92,10 +84,10 @@ divide(struct colo a, int n)
     };
 }
 
-struct quad
+static inline struct quad
 Quad(int x0, int y0, int x1, int y1, SDL_Surface* image)
 {
-    struct quad quad = { { { x0, y0 }, { x1, y1 } }, 0x0 };
+    struct quad quad = { { { x0, y0 }, { x1, y1 } }, Colo(0x0) };
     uint32_t* pixels = image->pixels;
     struct colo colo = Colo(0x0);
     int count = 0;
@@ -106,16 +98,17 @@ Quad(int x0, int y0, int x1, int y1, SDL_Surface* image)
         colo = add(colo, Colo(pixel));
         count += 1;
     }
-    colo = divide(colo, count);
-    quad.color = unpack(colo);
+    quad.colo = divide(colo, count);
     return quad;
 }
 
-struct node*
+static double max_diff = 5.0;
+
+static int max_depth = 8;
+
+static inline struct node*
 Node(struct quad quad, SDL_Surface* image, int depth)
 {
-    double max_diff = 5.0;
-    int max_depth = 7;
     struct node* node = calloc(1, sizeof(*node));
     node->quad = quad;
     node->depth = depth;
@@ -128,10 +121,10 @@ Node(struct quad quad, SDL_Surface* image, int depth)
         struct quad b = Quad(mx,            quad.rect.a.y, quad.rect.b.x, my,            image);
         struct quad c = Quad(quad.rect.a.x, my,            mx,            quad.rect.b.y, image);
         struct quad d = Quad(mx,            my,            quad.rect.b.x, quad.rect.b.y, image);
-        if(diff(a.color, node->quad.color) > max_diff
-        || diff(b.color, node->quad.color) > max_diff
-        || diff(c.color, node->quad.color) > max_diff
-        || diff(d.color, node->quad.color) > max_diff)
+        if(diff(a.colo, node->quad.colo) > max_diff
+        || diff(b.colo, node->quad.colo) > max_diff
+        || diff(c.colo, node->quad.colo) > max_diff
+        || diff(d.colo, node->quad.colo) > max_diff)
         {
             node->node[0] = Node(a, image, next);
             node->node[1] = Node(b, image, next);
@@ -142,7 +135,7 @@ Node(struct quad quad, SDL_Surface* image, int depth)
     return node;
 }
 
-void
+static inline void
 _Node(struct node* node)
 {
     if(node)
@@ -153,28 +146,8 @@ _Node(struct node* node)
     }
 }
 
-uint32_t* lock(SDL_Texture* texture)
-{
-    int pitch;
-    void* raw;
-    SDL_LockTexture(texture, NULL, &raw, &pitch);
-    return raw;
-}
-
-void xfer(uint32_t* pixels, struct rect* rect, uint32_t color, SDL_Surface* image)
-{
-    for(int x = rect->a.x; x < rect->b.x; x++)
-    for(int y = rect->a.y; y < rect->b.y; y++)
-        pixels[x + y * image->w] =
-#if 1
-            x == rect->b.x - 1 ||
-            y == rect->b.y - 1 ? 0x0 : color;
-#else
-            color;
-#endif
-}
-
-bool drawable(struct node* node)
+static inline bool
+drawable(struct node* node)
 {
     return node->node[0] == NULL
         || node->node[1] == NULL
@@ -182,18 +155,32 @@ bool drawable(struct node* node)
         || node->node[3] == NULL;
 }
 
-void
-draw(struct node* node, SDL_Texture* texture, SDL_Surface* image)
+static inline void
+draw(struct node* node, SDL_Renderer* renderer, bool outline)
 {
-    uint32_t* pixels = lock(texture);
     if(node)
     {
         for(int i = 0; i < CHILDREN; i++)
-            draw(node->node[i], texture, image);
+            draw(node->node[i], renderer, outline);
         if(drawable(node))
-            xfer(pixels, &node->quad.rect, node->quad.color, image);
+        {
+            struct colo* colo = &node->quad.colo;
+            struct rect* rect = &node->quad.rect;
+            SDL_SetRenderDrawColor(renderer, colo->r, colo->g, colo->b, 0);
+            SDL_Rect dst = {
+                rect->a.x,
+                rect->a.y,
+                rect->b.x - rect->a.x,
+                rect->b.y - rect->a.y,
+            };
+            SDL_RenderFillRect(renderer, &dst);
+            if(outline)
+            {
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+                SDL_RenderDrawRect(renderer, &dst);
+            }
+        }
     }
-    SDL_UnlockTexture(texture);
 }
 
 int main(void)
@@ -204,35 +191,23 @@ int main(void)
     SDL_Surface* surface = IMG_Load(path);
     SDL_Surface* image = SDL_ConvertSurface(surface, allocation, 0);
     SDL_FreeFormat(allocation);
-    SDL_Window* window = SDL_CreateWindow(
-        TITLE,
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
-        image->w,
-        image->h,
-        SDL_WINDOW_SHOWN);
-    SDL_Renderer* renderer = SDL_CreateRenderer(
-        window,
-        -1,
-        SDL_RENDERER_ACCELERATED);
-    SDL_Texture* texture = SDL_CreateTexture(
-        renderer,
-        SDL_PIXELFORMAT_RGB888,
-        SDL_TEXTUREACCESS_STREAMING,
-        image->w,
-        image->h);
-    struct node* node = Node(Quad(0, 0, image->w, image->h, image), image, 0);
-    draw(node, texture, image);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
-    SDL_RenderPresent(renderer);
-    _Node(node);
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    SDL_CreateWindowAndRenderer(image->w, image->h, 0, &window, &renderer);
     const uint8_t* key = SDL_GetKeyboardState(NULL);
     while(!key[SDL_SCANCODE_END])
     {
+        bool outline = false;
+        if(key[SDL_SCANCODE_E]) max_diff -= 0.1;
+        if(key[SDL_SCANCODE_Q]) max_diff += 0.1;
+        if(key[SDL_SCANCODE_W]) outline = true;
+        struct node* node = Node(Quad(0, 0, image->w, image->h, image), image, 0);
+        draw(node, renderer, outline);
+        SDL_RenderPresent(renderer);
+        _Node(node);
         SDL_PumpEvents();
-        SDL_Delay(15);
+        SDL_Delay(10);
     }
-    SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_FreeSurface(surface);
     SDL_FreeSurface(image);
