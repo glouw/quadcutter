@@ -7,6 +7,10 @@
 
 #define TITLE ("EBOXYPIC")
 
+static double max_diff = 5.0;
+
+static const int max_depth = 7;
+
 struct colo
 {
     int r;
@@ -101,10 +105,6 @@ Quad(int x0, int y0, int x1, int y1, SDL_Surface* image)
     quad.colo = divide(colo, count);
     return quad;
 }
-
-static double max_diff = 5.0;
-
-static int max_depth = 8;
 
 static inline struct node*
 Node(struct quad quad, SDL_Surface* image, int depth)
