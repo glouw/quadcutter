@@ -195,12 +195,14 @@ int main(void)
     SDL_Renderer* renderer;
     SDL_CreateWindowAndRenderer(image->w, image->h, 0, &window, &renderer);
     const uint8_t* key = SDL_GetKeyboardState(NULL);
-    while(!key[SDL_SCANCODE_END])
+    bool done = false;
+    while(!done)
     {
-        bool outline = false;
+        done = key[SDL_SCANCODE_END] || key[SDL_SCANCODE_ESCAPE];
+        bool outline = true;
         if(key[SDL_SCANCODE_E]) max_diff -= 0.1;
         if(key[SDL_SCANCODE_Q]) max_diff += 0.1;
-        if(key[SDL_SCANCODE_W]) outline = true;
+        if(key[SDL_SCANCODE_W]) outline = false;
         struct node* node = Node(Quad(0, 0, image->w, image->h, image), image, 0);
         draw(node, renderer, outline);
         SDL_RenderPresent(renderer);
